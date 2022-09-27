@@ -1,6 +1,7 @@
 # mypy: allow-untyped-defs
 
 import hashlib
+import itertools
 import json
 import os
 from urllib.parse import urlsplit
@@ -365,6 +366,7 @@ class TestSource:
     def __init__(self, test_queue):
         self.test_queue = test_queue
         self.current_group = None
+        self.current_test_type = None
         self.current_metadata = None
         self.logger = structured.get_default_logger()
         if self.logger is None:
@@ -386,40 +388,42 @@ class TestSource:
     def group(self):
         if not self.current_group or len(self.current_group) == 0:
             try:
-                self.current_group, self.current_metadata = self.test_queue.get(block=True, timeout=5)
+                self.current_group, self.current_test_type, self.current_metadata = self.test_queue.get(block=True, timeout=5)
             except Empty:
                 self.logger.warning("Timed out getting test group from queue")
-                return None, None
-        return self.current_group, self.current_metadata
+                return None, None, None
+        return self.current_group, self.current_test_type, self.current_metadata
 
     @classmethod
     def add_sentinal(cls, test_queue, num_of_workers):
         # add one sentinal for each worker
         for _ in range(num_of_workers):
-            test_queue.put((None, None))
+            test_queue.put((None, None, None))
 
 
 class GroupedSource(TestSource):
     @classmethod
-    def new_group(cls, state, test, **kwargs):
+    def new_group(cls, state, test_type, test, **kwargs):
         raise NotImplementedError
 
     @classmethod
     def make_queue(cls, tests, **kwargs):
+        # tests is a dict of test_type to list of tests
         mp = mpcontext.get_context()
         test_queue = mp.Queue()
         groups = []
 
         state = {}
 
-        for test in tests:
-            if cls.new_group(state, test, **kwargs):
-                group_metadata = cls.group_metadata(state)
-                groups.append((deque(), group_metadata))
+        for test_type in tests:
+            for test in tests[test_type]:
+                if cls.new_group(state, test_type, test, **kwargs):
+                    group_metadata = cls.group_metadata(state)
+                    groups.append((deque(), test_type, group_metadata))
 
-            group, metadata = groups[-1]
-            group.append(test)
-            test.update_metadata(metadata)
+                group, _, metadata = groups[-1]
+                group.append(test)
+                test.update_metadata(metadata)
 
         for item in groups:
             test_queue.put(item)
@@ -428,50 +432,58 @@ class GroupedSource(TestSource):
 
     @classmethod
     def tests_by_group(cls, tests, **kwargs):
+        # tests is dict of test_type to list of tests
         groups = defaultdict(list)
         state = {}
         current = None
-        for test in tests:
-            if cls.new_group(state, test, **kwargs):
-                current = cls.group_metadata(state)['scope']
-            groups[current].append(test.id)
+        for test_type in tests:
+            for test in tests[test_type]:
+                if cls.new_group(state, test_type, test, **kwargs):
+                    current = cls.group_metadata(state)['scope']
+                groups[current].append(test.id)
         return groups
 
 
 class SingleTestSource(TestSource):
     @classmethod
     def make_queue(cls, tests, **kwargs):
+        # tests is dict of test_type to list of tests
         mp = mpcontext.get_context()
         test_queue = mp.Queue()
-        processes = kwargs["processes"]
-        queues = [deque([]) for _ in range(processes)]
-        metadatas = [cls.group_metadata(None) for _ in range(processes)]
-        for test in tests:
-            idx = hash(test.id) % processes
-            group = queues[idx]
-            metadata = metadatas[idx]
-            group.append(test)
-            test.update_metadata(metadata)
+        for test_type in tests:
+            processes = kwargs["processes"]
+            queues = [deque([]) for _ in range(processes)]
+            metadatas = [cls.group_metadata(None) for _ in range(processes)]
+            for test in tests[test_type]:
+                idx = hash(test.id) % processes
+                group = queues[idx]
+                metadata = metadatas[idx]
+                group.append(test)
+                test.update_metadata(metadata)
 
-        for item in zip(queues, metadatas):
-            test_queue.put(item)
+            for item in zip(queues, itertools.repeat(test_type), metadatas):
+                if len(item[0]) > 0:
+                    test_queue.put(item)
         cls.add_sentinal(test_queue, kwargs["processes"])
 
         return test_queue
 
     @classmethod
     def tests_by_group(cls, tests, **kwargs):
-        return {cls.group_metadata(None)['scope']: [t.id for t in tests]}
+        return {cls.group_metadata(None)['scope']:
+                [t.id for t in itertools.chain.from_iterable(tests.values())]}
 
 
 class PathGroupedSource(GroupedSource):
     @classmethod
-    def new_group(cls, state, test, **kwargs):
+    def new_group(cls, state, test_type, test, **kwargs):
         depth = kwargs.get("depth")
         if depth is True or depth == 0:
             depth = None
         path = urlsplit(test.url).path.split("/")[1:-1][:depth]
-        rv = path != state.get("prev_path")
+        rv = (test_type != state.get("prev_test_type") or
+              path != state.get("prev_path"))
+        state["prev_test_type"] = test_type
         state["prev_path"] = path
         return rv
 
@@ -483,23 +495,26 @@ class PathGroupedSource(GroupedSource):
 class GroupFileTestSource(TestSource):
     @classmethod
     def make_queue(cls, tests, **kwargs):
-        tests_by_group = cls.tests_by_group(tests, **kwargs)
-
-        ids_to_tests = {test.id: test for test in tests}
-
+        # tests is dict of test_type to list of tests
         mp = mpcontext.get_context()
         test_queue = mp.Queue()
 
-        for group_name, test_ids in tests_by_group.items():
-            group_metadata = {"scope": group_name}
-            group = deque()
+        for test_type in tests:
+            tests_by_group = cls.tests_by_group({test_type: tests[test_type]},
+                                                **kwargs)
 
-            for test_id in test_ids:
-                test = ids_to_tests[test_id]
-                group.append(test)
-                test.update_metadata(group_metadata)
+            ids_to_tests = {test.id: test for test in tests[test_type]}
 
-            test_queue.put((group, group_metadata))
+            for group_name, test_ids in tests_by_group.items():
+                group_metadata = {"scope": group_name}
+                group = deque()
+
+                for test_id in test_ids:
+                    test = ids_to_tests[test_id]
+                    group.append(test)
+                    test.update_metadata(group_metadata)
+
+                test_queue.put((group, test_type, group_metadata))
 
         cls.add_sentinal(test_queue, kwargs["processes"])
 
@@ -507,11 +522,12 @@ class GroupFileTestSource(TestSource):
 
     @classmethod
     def tests_by_group(cls, tests, **kwargs):
+        # tests is dict of test_type to list of tests
         logger = kwargs["logger"]
         test_groups = kwargs["test_groups"]
 
         tests_by_group = defaultdict(list)
-        for test in tests:
+        for test in itertools.chain.from_iterable(tests.values()):
             try:
                 group = test_groups.group_by_test[test.id]
             except KeyError:
