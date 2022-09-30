@@ -4,7 +4,7 @@
 <link rel="help" href="https://drafts.csswg.org/css-tables-3/#border-conflict-resolution-algorithm">
 <link rel="help" href="https://github.com/w3c/csswg-drafts/issues/606">
 <link rel="match" href="subpixel-collapsed-borders-003-ref.html">
-<meta name="assert" content="When collapsed border tables have border widths larger than cells', the table border wins even when the floored table border is the same size as the cell's." />
+<meta name="assert" content="When collapsed border tables have border widths larger than cells', the table border wins." />
 
 <style>
 table {
@@ -15,11 +15,12 @@ table {
 td {
   width: 50px;
   height: 50px;
-  border: 5px solid red;
+  border: 4px solid red;
 }
 </style>
 
-<p>There should be a square with a green border, not a red border.
+<p>
+  There should be a square with a green border, not a red border.
 </p>
 
 <table>
