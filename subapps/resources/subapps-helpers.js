@@ -52,22 +52,40 @@ function subapps_test(func, description) {
   }, description);
 }
 
-async function subapps_add_expect_reject_with_result(t, subapps, add_call_return_value, expected_results) {
+async function subapps_add_expect_reject_with_result(t, add_call_params, mocked_response, expected_results) {
   t.add_cleanup(async () => {
-      await mockSubAppsService.reset();
-      mockSubAppsService = null;
+    await mockSubAppsService.reset();
+    mockSubAppsService = null;
   });
 
-  await createMockSubAppsService(Status.FAILURE, add_call_return_value);
-
-  navigator.subApps.add(subapps)
+  await createMockSubAppsService(Status.FAILURE, mocked_response);
+  await navigator.subApps.add(add_call_params)
     .then(result => {
       assert_unreached("Should have rejected.");
     })
     .catch(result => {
-      for (app_id in expected_results) {
+      for (const app_id in expected_results) {
         assert_own_property(result, app_id, "Return results are missing entry for subapp.")
         assert_equals(result[app_id], expected_results[app_id], "Return results are not as expected.")
       }
     });
+}
+
+async function subapps_add_expect_success_with_result(t, add_call_params, mocked_response, expected_results) {
+  t.add_cleanup(async () => {
+    await mockSubAppsService.reset();
+    mockSubAppsService = null;
+  });
+
+  await createMockSubAppsService(Status.SUCCESS, mocked_response);
+  await navigator.subApps.add(add_call_params)
+    .catch(e => {
+      assert_unreached("Should not have rejected.");
+    })
+    .then(result => {
+      for (const app_id in expected_results) {
+        assert_own_property(result, app_id, "Return results are missing entry for subapp.")
+        assert_equals(result[app_id], expected_results[app_id], "Return results are not as expected.")
+      }
+    })
 }
