@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Navigation Type Post Back Forward</title>
+  <script src="/resources/testharness.js"></script>
+  <script src="/resources/testharnessreport.js"></script>
+</head>
+
+<body>
+  <script>
+    function promise_chaining_helper(callback, args) {
+      return new Promise(resolve => callback.apply(null, args.concat([resolve])));
+    }
+
+    function add_iframe(url, resolve) {
+      const frame = document.createElement('iframe');
+      frame.src = url;
+      frame.addEventListener('load', () => {
+        resolve(frame);
+      }, { once: true });
+      document.body.appendChild(frame);
+    }
+
+    function submit_form(frame, resolve) {
+      frame.addEventListener('load', () => {
+        resolve(frame);
+      }, { once: true });
+      // Post by submit method.
+      frame.contentWindow.document.getElementsByTagName("form")[0].submit();
+    }
+
+    function navigate_away(frame, resolve) {
+      frame.addEventListener('load', () => {
+        resolve(frame);
+      }, { once: true });
+      // Navigate away by simulating a click on the link.
+      frame.contentWindow.document.getElementsByTagName("a")[0].click();
+    }
+
+    function navigate_back(frame, resolve) {
+      frame.addEventListener('load', () => {
+        resolve(frame);
+      }, { once: true });
+      // Navigate back.
+      frame.contentWindow.history.back();
+    }
+
+    promise_test(async t => {
+      // Add an iframe and Load page in the iframe.
+      return promise_chaining_helper(add_iframe, ['resources/navigation-type-post-back.html'])
+        .then((frame) => {
+          return promise_chaining_helper(submit_form, [frame]);
+        }).then((frame) => {
+          return promise_chaining_helper(navigate_away, [frame]);
+        }).then((frame) => {
+          return promise_chaining_helper(navigate_back, [frame]);
+        }).then((frame) => {
+          // Verify navigation type.
+          assert_equals(frame.contentWindow.performance.getEntriesByType('navigation')[0].type,
+            'back_forward');
+        });
+    }, "Navigation type after posting and navigating away and back should be back_forward.");
+  </script>
+</body>
+
+</html>
