@@ -5,10 +5,12 @@ async function clickOnElementAndDelay(id, delay, callback) {
   const element = document.getElementById(id);
   const clickHandler = () => {
     mainThreadBusy(delay);
-    if (callback)
+    if (callback) {
       callback();
+    }
     element.removeEventListener("pointerdown", clickHandler);
   };
+
   element.addEventListener("pointerdown", clickHandler);
   await test_driver.click(element);
 }
@@ -128,6 +130,44 @@ async function testDuration(t, id, numEntries, dur, fastDur, slowDur) {
   });
   return Promise.all([observerPromise, clicksPromise]);
 }
+
+  // Add a PerformanceObserver and observe with a durationThreshold of |durThreshold|. This test will
+  // attempt to check that the duration is appropriately checked by:
+  // * Asserting that entries received have a duration which is the smallest multiple of 8
+  //   that is greater than or equal to |durThreshold|.
+  // * Issuing |numEntries| entries that have at least |processingDelay| as duration.
+  // * Asserting that if the durThreshold is smaller than the processingDelay,
+  //   we shouldn't receive any entries.
+  // Parameters:
+  // |t|                     - the test harness.
+  // |id|                    - the ID of the element to be clicked.
+  // |durThreshold|          - the durationThreshold for the PerformanceObserver.
+  // |numEntries|            - the number of slow and number of fast entries.
+  // |processingDelay|       - the event duration we add on each event.
+  async function testDurationWithTarget(t, id, numEntries, durThreshold, processingDelay) {
+    assert_implements(window.PerformanceEventTiming, 'Event Timing is not supported.');
+    let isFast = true;
+    const observerPromise = new Promise(async resolve => {
+      new PerformanceObserver(t.step_func(list => {
+        const pointerDowns = list.getEntriesByName('pointerdown');
+        if (isFast) {
+          assert_unreached("The observer processed fast event");
+        }
+        pointerDowns.forEach(p => {
+          assert_greater_than_equal(p.duration, durThreshold,
+            "The entry's duration should be greater than or equal to " + durThreshold + " ms.");
+        });
+        resolve();
+      })).observe({type: "event", durationThreshold: durThreshold});
+    });
+    for (let index = 0; index < numEntries; index++) {
+      // Add some click events with processingDelay.
+      await clickOnElementAndDelay(id, processingDelay);
+    }
+    isFast = false;
+    await clickOnElementAndDelay(id, durThreshold);
+    return observerPromise;
+  }
 
 // Apply events that trigger an event of the given |eventType| to be dispatched to the
 // |target|. Some of these assume that the target is not on the top left corner of the
