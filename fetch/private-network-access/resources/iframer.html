@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Iframer</title>
+<script>
+  // This page waits for its parent to `postMessage()` it the URL of a page to
+  // embed in an iframe, then monitors the result of the iframe navigation, and
+  // finally reports the result back to its parent as a `loaded` boolean.
+  //
+  // Note that an iframe's `load` event fires whether or not the iframe loaded
+  // successfully. The `error` event does not fire in the cases that interest
+  // us. Alone, these events do not allow us to determine the result of the
+  // iframe navigation.
+  //
+  // Since the child frame is cooperative, we can wait for it to post a message
+  // to us indicating that it loaded successfully. Absence of such a message
+  // indicates that the iframe failed to load.
+  //
+  // We could simply wait for such a message with a timeout, but we can do a bit
+  // better than that. First we wait for the iframe's `load` event to fire,
+  // indefinitely. Only once the event has fired do we start waiting for the
+  // iframe's message. Since the message always comes very soon after the `load`
+  // event, we can set a much shorter timeout on this wait, and speed up the
+  // test considerably, all while reducing the risk of false negatives.
+
+  let hasNotifiedParent = false;
+
+  function maybeNotifyParent(message) {
+    if (hasNotifiedParent) {
+      return;
+    }
+
+    hasNotifiedParent = true;
+    parent.postMessage(message, "*");
+  };
+
+  function handleChildMessage() {
+    maybeNotifyParent({ loaded: true });
+  }
+
+  function handleParentMessage({ url }) {
+    const child = document.createElement("iframe");
+    child.src = url;
+
+    child.onload = () => {
+      // If we do not receive a message from the child in a short timeframe,
+      // then the iframe must have failed to load. Note that we are able to
+      // set a short timeout because we already waited for `load` to fire.
+      setTimeout(() => maybeNotifyParent({ loaded: false }), 100 /* ms */);
+    };
+
+    document.body.appendChild(child);
+  }
+
+  window.addEventListener("message", function (event) {
+    if (event.source === parent) {
+      handleParentMessage(event.data);
+    } else {
+      handleChildMessage(event.data);
+    }
+  });
+</script>

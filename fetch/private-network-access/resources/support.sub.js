@@ -26,11 +26,37 @@ function appendIframe(t, doc, src) {
 
 // Register an event listener that will resolve this promise when this
 // window receives a message posted to it.
-function futureMessage() {
+//
+// `options` has the following shape:
+//
+//  {
+//    // If specified, this function waits for the first message from the given
+//    // source only, ignoring other messages.
+//    source,
+//  }
+//
+function futureMessage(options) {
+  const source = options && options.source;
+
   return new Promise(resolve => {
-      window.addEventListener("message", e => resolve(e.data));
+    function handleMessage(e) {
+      if (source && source !== e.source) {
+        return;
+      }
+
+      window.removeEventListener("message", handleMessage);
+      resolve(e.data);
+    }
+
+    window.addEventListener("message", handleMessage);
   });
 };
+
+async function postMessageAndAwaitReply(target, message) {
+  const reply = futureMessage({ source: target });
+  target.postMessage(message, "*");
+  return await reply;
+}
 
 const Server = {
   HTTP_LOCAL: {
@@ -313,6 +339,27 @@ async function xhrTest(t, { source, target, method, expected }) {
   assert_equals(loaded, expected.loaded, "response loaded");
   assert_equals(status, expected.status, "response status");
   assert_equals(body, expected.body, "response body");
+}
+
+const IframeTestResult = {
+  SUCCESS: true,
+  FAILURE: false,
+};
+
+async function iframeTest(t, { source, target, expected }) {
+  const sourceUrl =
+      resolveUrl("resources/iframer.html", sourceResolveOptions(source));
+
+  const targetUrl = preflightUrl(target);
+  targetUrl.searchParams.append("file", "iframed.html");
+
+  const iframe = await appendIframe(t, document, sourceUrl);
+
+  const { loaded } = await postMessageAndAwaitReply(iframe.contentWindow, {
+    url: targetUrl.href,
+  });
+
+  assert_equals(loaded, expected, "iframe loaded");
 }
 
 const WebsocketTestResult = {
