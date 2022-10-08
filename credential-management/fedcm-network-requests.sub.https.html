@@ -26,22 +26,23 @@ promise_test(async t => {
   assert_equals(cred.token, "token");
 }, "Successfully obtaining token should resolve the promise.");
 
-promise_test(async t => {
-  await set_fedcm_cookie();
-  const first = navigator.credentials.get(test_options);
-  const second = navigator.credentials.get(test_options);
+// promise_test(async t => {
+//   await set_fedcm_cookie();
+//   window.onload = async () => {
+//     const first = navigator.credentials.get(test_options);
+//     const second = navigator.credentials.get(test_options);
 
-  // We have to call promise_rejects_dom here, because if we call it after
-  // the promise gets rejected, the unhandled rejection event handler is called
-  // and fails the test even if we handle the rejection later.
-  const rej = promise_rejects_dom(t, 'AbortError', second);
+//     // We have to call promise_rejects_dom here, because if we call it after
+//     // the promise gets rejected, the unhandled rejection event handler is called
+//     // and fails the test even if we handle the rejection later.
+//     const rej = promise_rejects_dom(t, 'AbortError', second);
 
-  const first_cred = await first;
-  assert_equals(first_cred.token, "token");
+//     const first_cred = await first;
+//     assert_equals(first_cred.token, "token");
 
-  return rej;
-},
-"When there's a pending request, a second `get` call should be rejected. ");
+//     return rej;
+//   }
+// }, "When there's a pending request, a second `get` call should be rejected.");
 
 promise_test(async t => {
   const cred = navigator.credentials.get({
@@ -111,30 +112,29 @@ promise_test(async t => {
   return promise_rejects_js(t, TypeError, cred);
 }, "Reject when clientId is missing" );
 
-promise_test(async t => {
-  let controller = new AbortController();
-  const cred = navigator.credentials.get({
-    identity: test_options.identity,
-    signal: controller.signal,
-  });
-  controller.abort();
-  return promise_rejects_dom(t, 'AbortError', cred);
-}, "Test the abort signal");
+// promise_test(async t => {
+//   let controller = new AbortController();
+//   const cred = navigator.credentials.get({
+//     identity: test_options.identity,
+//     signal: controller.signal,
+//   });
+//   controller.abort();
+//   return promise_rejects_dom(t, 'AbortError', cred);
+// }, "Test the abort signal");
 
-promise_test(async t => {
-  await set_fedcm_cookie();
+// promise_test(async t => {
+//   await set_fedcm_cookie();
+//   let controller = new AbortController();
+//   const first_cred = navigator.credentials.get({
+//     identity: test_options.identity,
+//     signal: controller.signal,
+//   });
+//   controller.abort();
+//   await promise_rejects_dom(t, 'AbortError', first_cred);
 
-  let controller = new AbortController();
-  const first_cred = navigator.credentials.get({
-    identity: test_options.identity,
-    signal: controller.signal,
-  });
-  controller.abort();
-  await promise_rejects_dom(t, 'AbortError', first_cred);
-
-  const second_cred = await navigator.credentials.get(test_options);
-  assert_equals(second_cred.token, "token");
-}, "Get after abort should work");
+//   const second_cred = await navigator.credentials.get(test_options);
+//   assert_equals(second_cred.token, "token");
+// }, "Get after abort should work");
 
 promise_test(async t => {
   const cred = navigator.credentials.get({
@@ -167,5 +167,40 @@ promise_test(async t => {
   });
   return promise_rejects_dom(t, 'NetworkError', cred);
 }, 'Test that the promise is rejected if the manifest is not in the manifest list');
+
+promise_test(async t => {
+  await set_fedcm_cookie();
+  const first_cred = navigator.credentials.get({
+    identity: {
+      providers: [{
+        configURL: url_prefix + 'fedcm.json',
+        clientId: '1',
+        nonce: '2',
+      }]
+    }
+  });
+  const second_cred = navigator.credentials.get({
+    identity: {
+      providers: [{
+        configURL: url_prefix + 'bar.json',
+        clientId: '1',
+        nonce: '2',
+      }]
+    }
+  });
+  const third_cred = navigator.credentials.get({
+    identity: {
+      providers: [{
+        configURL: url_prefix + 'baz.json',
+        clientId: '1',
+        nonce: '2',
+      }]
+    }
+  });
+  const second = await promise_rejects_dom(t, 'NetworkError', second_cred);
+  const third = await promise_rejects_dom(t, 'NetworkError', third_cred);
+  const first = await first_cred;
+  assert_equals(first.token, "token");
+}, "Multiple get calls are allowed for the multi IDP use case");
 
 </script>
