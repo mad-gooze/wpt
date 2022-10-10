@@ -13,7 +13,7 @@ const Status = {
   FAILURE: 1,
 };
 
-async function createMockSubAppsService(service_result_code, add_call_return_value) {
+async function createMockSubAppsService(service_result_code, add_call_return_value, list_call_return_value) {
   if (typeof SubAppsServiceTest === 'undefined') {
     // Load test-only API helpers.
     const script = document.createElement('script');
@@ -37,7 +37,7 @@ async function createMockSubAppsService(service_result_code, add_call_return_val
 
   if (mockSubAppsService === null) {
     mockSubAppsService = new SubAppsServiceTest();
-    mockSubAppsService.initialize(service_result_code, add_call_return_value);
+    mockSubAppsService.initialize(service_result_code, add_call_return_value, list_call_return_value);
   }
 }
 
@@ -47,7 +47,7 @@ function subapps_test(func, description) {
       await mockSubAppsService.reset();
       mockSubAppsService = null;
     });
-    await createMockSubAppsService(Status.SUCCESS, []);
+    await createMockSubAppsService(Status.SUCCESS, [], []);
     await func(test, mockSubAppsService);
   }, description);
 }
@@ -58,7 +58,7 @@ async function subapps_add_expect_reject_with_result(t, subapps, add_call_return
       mockSubAppsService = null;
   });
 
-  await createMockSubAppsService(Status.FAILURE, add_call_return_value);
+  await createMockSubAppsService(Status.FAILURE, add_call_return_value, []);
 
   navigator.subApps.add(subapps)
     .then(result => {
