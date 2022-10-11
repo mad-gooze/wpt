@@ -57,9 +57,11 @@ const setClickEvent = (t, button, push_state, add_content, push_url) => {
     if (push_state) {
       // Change the URL
       if (push_url) {
-        history.pushState({}, '', url + "?" + counter);
+        push_state(url + "?" + counter);
+        //history.pushState({}, '', url + "?" + counter);
       } else {
-        history.pushState({}, '');
+        push_state();
+        //history.pushState({}, '');
       }
     }
 
